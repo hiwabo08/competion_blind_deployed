@@ -1,0 +1,12 @@
+.env
+__pycache__/
+*.pyc
+memory_objects/
+known_faces/
+Currency/
+conversation_log.txt
+memory_index.json
+indoor_map.json
+emergency_contacts.json
+*.pt
+

@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: visionassist-ai
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    envVars:
+      - key: GROQ_API_KEY_1
+        sync: false
+      - key: GROQ_API_KEY_2
+        sync: false
+      - key: GROQ_API_KEY_3
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: N8N_FORM_URL
+        sync: false
+      - key: N8N_CHAT_WEBHOOK
+        sync: false
+      - key: N8N_RAG_IMAGE_URL
+        sync: false
+      - key: SMTP_SERVER
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: EMAIL_ADDRESS
+        sync: false
+      - key: EMAIL_PASSWORD
+        sync: false
+      - key: EMERGENCY_EMAIL
+        sync: false
