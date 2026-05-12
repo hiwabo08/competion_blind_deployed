@@ -3380,7 +3380,7 @@ def _mcp_call_tool(name: str, arguments: dict) -> str:
             frames = arguments.get("frames", [])
             if not frames:
                 return "No image provided."
-            processed = [preprocess_image(f, 800) for f in frames[:1] if f and len(f) > 100]
+            processed = [preprocess_image(f, 320) for f in frames[:1] if f and len(f) > 100]
             if not processed:
                 return "Could not process image."
             return groq_vision_call(TRAFFIC_SYSTEM, TRAFFIC_USER, processed, max_tokens=80, priority="high")
@@ -3389,7 +3389,7 @@ def _mcp_call_tool(name: str, arguments: dict) -> str:
             frames = arguments.get("frames", [])
             if not frames:
                 return "No image provided."
-            processed = [preprocess_image(f, 800) for f in frames[:4] if f and len(f) > 100]
+            processed = [preprocess_image(f, 320) for f in frames[:4] if f and len(f) > 100]
             if not processed:
                 return "Could not process image."
             return groq_vision_call(FOOD_SYSTEM, FOOD_USER, processed, max_tokens=250, priority="low")
@@ -3400,7 +3400,7 @@ def _mcp_call_tool(name: str, arguments: dict) -> str:
                 image_data = arguments["frames"][0]
             if not image_data:
                 return "No image provided."
-            processed = preprocess_image(image_data, 900)
+            processed = preprocess_image(image_data, 320)
             if not processed:
                 return "Could not process image."
             return groq_vision_call(PAGE_READER_SYSTEM, PAGE_READER_USER, [processed], max_tokens=1500, priority="high")
@@ -3410,7 +3410,7 @@ def _mcp_call_tool(name: str, arguments: dict) -> str:
             question = arguments.get("question", "What is in front of me? Describe the scene.")
             if not frames:
                 return "No image provided."
-            processed = [preprocess_image(f, 900) for f in frames[:3] if f and len(f) > 100]
+            processed = [preprocess_image(f, 320) for f in frames[:3] if f and len(f) > 100]
             if not processed:
                 return "Could not process image."
             user_prompt = (
