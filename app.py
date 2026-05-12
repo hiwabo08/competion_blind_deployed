@@ -3386,7 +3386,7 @@ def _direct_groq_vision(system: str, user: str, frame_b64: str, max_tokens: int 
 
     # Resize to tiny to stay well within Groq limits
     try:
-        raw = _b64.b64decode(raw_b64 + "==")
+        raw = _b64.b64decode(raw_b64)
         img = _Image.open(_io.BytesIO(raw)).convert("RGB")
         img.thumbnail((100, 100))
         buf = _io.BytesIO()
