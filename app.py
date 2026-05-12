@@ -3662,70 +3662,65 @@ def test_mcp_traffic():
 
 
 
+
 @app.route('/api/debug-mcp', methods=['POST'])
 def debug_mcp():
-    """Step-by-step debug endpoint to find exactly where external image processing fails."""
-    import traceback as _tb
-    step = "start"
+    import requests as _req
+    import base64 as _b64
+    from PIL import Image as _Image
+    import io as _io
+    
     try:
-        # Step 1 — receive JSON and frames
-        step = "step1_receive"
-        data = request.get_json(force=True, silent=True) or {}
+        data = request.get_json()
         frames = data.get('frames', [])
-        if not frames:
-            return jsonify({"step": step, "failed": True, "reason": "no frames in request body"})
-
-        f = frames[0]
-        step = "step2_frame_inspect"
-        frame_info = {
-            "step": step,
-            "failed": False,
-            "frame_length": len(f),
-            "frame_preview": f[:80],
-            "starts_with_data_uri": f.startswith("data:"),
-        }
-
-        # Step 2 — base64 decode
-        step = "step3_decode"
-        import base64 as _b64
-        raw_data = f.split(",")[1] if "," in f else f
-        raw_bytes = _b64.b64decode(raw_data + "==")  # padding safe
-        frame_info["step3_decode"] = {"ok": True, "decoded_bytes": len(raw_bytes)}
-
-        # Step 3 — preprocess_image
-        step = "step4_preprocess"
-        processed = preprocess_image(f, 200)
-        frame_info["step4_preprocess"] = {
-            "ok": bool(processed),
-            "processed_length": len(processed) if processed else 0
-        }
-        if not processed:
-            frame_info["step"] = step
-            frame_info["failed"] = True
-            frame_info["reason"] = "preprocess_image returned empty/None"
-            return jsonify(frame_info)
-
-        # Step 4 — groq_vision_call
-        step = "step5_groq"
-        groq_result = groq_vision_call(
-            "You are a helpful assistant.",
-            "Describe this image in one sentence.",
-            [processed],
-            max_tokens=30,
-            priority="high"
-        )
-        frame_info["step5_groq"] = {"ok": True, "result": groq_result}
-        frame_info["step"] = "all_steps_passed"
-        frame_info["failed"] = False
-        return jsonify(frame_info)
-
+        frame = frames[0]
+        
+        # Step 1 - resize
+        raw = _b64.b64decode(frame)
+        img = _Image.open(_io.BytesIO(raw)).convert("RGB")
+        img.thumbnail((150, 150))
+        buf = _io.BytesIO()
+        img.save(buf, format='JPEG', quality=55)
+        small = _b64.b64encode(buf.getvalue()).decode()
+        
+        # Step 2 - direct groq call NO groq_vision_call
+        keys = [
+            os.environ.get("GROQ_API_KEY_1", ""),
+            os.environ.get("GROQ_API_KEY_2", ""),
+            os.environ.get("GROQ_API_KEY_3", "")
+        ]
+        
+        for key in keys:
+            if not key:
+                continue
+            r = _req.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                json={
+                    "model": "meta-llama/llama-4-scout-17b-16e-instruct",
+                    "messages": [{"role": "user", "content": [
+                        {"type": "text", "text": "What color is the traffic light?"},
+                        {"type": "image_url", "image_url": {
+                            "url": f"data:image/jpeg;base64,{small}",
+                            "detail": "low"
+                        }}
+                    ]}],
+                    "max_tokens": 20,
+                    "temperature": 0.0
+                },
+                headers={
+                    "Authorization": f"Bearer {key}",
+                    "Content-Type": "application/json"
+                },
+                timeout=25
+            )
+            return jsonify({
+                "status_code": r.status_code,
+                "response": r.json() if r.status_code == 200 else r.text,
+                "key_used": key[:8] + "..."
+            })
+            
     except Exception as e:
-        return jsonify({
-            "step": step,
-            "failed": True,
-            "error": str(e),
-            "traceback": _tb.format_exc()
-        })
+        return jsonify({"error": str(e)})
 
 
 if __name__ == "__main__":
