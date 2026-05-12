@@ -3223,6 +3223,9 @@ def mcp_traffic():
         return jsonify({"success": False, "result": f"Error: {str(e)}"})
 
 
+
+
+
 @app.route('/api/mcp/food', methods=['POST'])
 def mcp_food():
     """MCP endpoint for food identification - no camera check required"""
@@ -3522,6 +3525,70 @@ def mcp_endpoint():
 @app.route('/mcp/health', methods=['GET'])
 def mcp_proper_health():
     return jsonify({"status": "healthy", "version": "1.0", "tools": [t["name"] for t in _MCP_TOOLS]})
+
+@app.route('/api/test-groq', methods=['GET'])
+def test_groq_simple():
+    """Test Groq with a tiny programmatically generated image"""
+    try:
+        from PIL import Image, ImageDraw
+        import io, base64
+        
+        # Make tiny red circle image
+        img = Image.new('RGB', (64, 64), color=(0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        draw.ellipse([5, 5, 59, 59], fill=(255, 0, 0))
+        
+        buf = io.BytesIO()
+        img.save(buf, format='JPEG', quality=70)
+        b64 = base64.b64encode(buf.getvalue()).decode()
+        
+        # Direct Groq call
+        import requests as req
+        payload = {
+            "model": "meta-llama/llama-4-scout-17b-16e-instruct",
+            "messages": [{
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "What color is this circle? One word answer."},
+                    {"type": "image_url", "image_url": {
+                        "url": f"data:image/jpeg;base64,{b64}",
+                        "detail": "low"
+                    }}
+                ]
+            }],
+            "max_tokens": 10,
+            "temperature": 0.0
+        }
+        
+        keys = [
+            os.environ.get("GROQ_API_KEY_1", ""),
+            os.environ.get("GROQ_API_KEY_2", ""),
+            os.environ.get("GROQ_API_KEY_3", "")
+        ]
+        
+        results = {}
+        for i, key in enumerate(keys, 1):
+            if not key:
+                results[f"key_{i}"] = "NOT SET"
+                continue
+            try:
+                r = req.post(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    json=payload,
+                    headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                    timeout=15
+                )
+                results[f"key_{i}"] = {
+                    "status_code": r.status_code,
+                    "response": r.json() if r.status_code == 200 else r.text[:200]
+                }
+            except Exception as e:
+                results[f"key_{i}"] = f"Exception: {str(e)}"
+        
+        return jsonify({"success": True, "groq_results": results})
+    
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
 
 
 
