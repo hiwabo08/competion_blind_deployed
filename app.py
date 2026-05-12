@@ -3388,9 +3388,9 @@ def _direct_groq_vision(system: str, user: str, frame_b64: str, max_tokens: int 
     try:
         raw = _b64.b64decode(raw_b64 + "==")
         img = _Image.open(_io.BytesIO(raw)).convert("RGB")
-        img.thumbnail((150, 150))
+        img.thumbnail((100, 100))
         buf = _io.BytesIO()
-        img.save(buf, format='JPEG', quality=55)
+        img.save(buf, format='JPEG', quality=40)
         raw_b64 = _b64.b64encode(buf.getvalue()).decode()
     except Exception as e:
         print(f"[_direct_groq_vision] resize: {e}")
