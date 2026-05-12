@@ -3373,44 +3373,76 @@ _MCP_TOOLS = [
 ]
 
 
-def _mcp_call_tool(name: str, arguments: dict) -> str:
-    try:
-        # Helper to make tiny safe image — handles large external base64 images
-        def make_safe_frames(frames, max_size=200):
-            safe = []
-            for f in frames[:2]:
-                if not f or len(f) < 100:
-                    continue
-                try:
-                    from PIL import Image
-                    import io, base64
-                    raw = base64.b64decode(f)
-                    img = Image.open(io.BytesIO(raw)).convert("RGB")
-                    img.thumbnail((max_size, max_size))
-                    buf = io.BytesIO()
-                    img.save(buf, format='JPEG', quality=60)
-                    safe.append(base64.b64encode(buf.getvalue()).decode())
-                except Exception:
-                    safe.append(preprocess_image(f, max_size))
-            return safe
+def _direct_groq_vision(system: str, user: str, frame_b64: str, max_tokens: int = 200) -> str:
+    """Direct Groq HTTP call that bypasses the shared failure counter — used by MCP tools."""
+    import requests as _req
+    import base64 as _b64, io as _io
 
+    # Strip data URI prefix if present
+    raw_b64 = frame_b64.split(",")[1] if "," in frame_b64 else frame_b64
+
+    # Resize to 200 px to stay well within Groq image limits
+    try:
+        from PIL import Image
+        raw = _b64.b64decode(raw_b64 + "==")
+        img = Image.open(_io.BytesIO(raw)).convert("RGB")
+        img.thumbnail((200, 200))
+        buf = _io.BytesIO()
+        img.save(buf, format="JPEG", quality=60)
+        raw_b64 = _b64.b64encode(buf.getvalue()).decode()
+    except Exception as resize_err:
+        print(f"[_direct_groq_vision] resize error: {resize_err}")
+
+    payload = {
+        "model": GROQ_MODEL,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": [
+                {"type": "text", "text": user},
+                {"type": "image_url", "image_url": {
+                    "url": f"data:image/jpeg;base64,{raw_b64}",
+                    "detail": "low"
+                }}
+            ]}
+        ],
+        "max_tokens": max_tokens,
+        "temperature": 0.1,
+    }
+
+    for key in [GROQ_API_KEY_1, GROQ_API_KEY_2, GROQ_API_KEY_3]:
+        if not key:
+            continue
+        try:
+            r = _req.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                json=payload,
+                headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                timeout=20,
+            )
+            if r.status_code == 200:
+                return r.json()["choices"][0]["message"]["content"].strip()
+            print(f"[_direct_groq_vision] key failed status={r.status_code}: {r.text[:200]}")
+        except Exception as call_err:
+            print(f"[_direct_groq_vision] request error: {call_err}")
+            continue
+
+    return "Could not process image. Please try again."
+
+
+def _mcp_call_tool(name: str, arguments: dict) -> str:
+    """Route MCP tool calls through _direct_groq_vision to bypass the failure counter."""
+    try:
         if name == "traffic_light_detector":
             frames = arguments.get("frames", [])
             if not frames:
                 return "No image provided."
-            safe = make_safe_frames(frames, 200)
-            if not safe:
-                return "Could not process image."
-            return groq_vision_call(TRAFFIC_SYSTEM, TRAFFIC_USER, safe, max_tokens=80, priority="high")
+            return _direct_groq_vision(TRAFFIC_SYSTEM, TRAFFIC_USER, frames[0], max_tokens=80)
 
         elif name == "food_identifier":
             frames = arguments.get("frames", [])
             if not frames:
                 return "No image provided."
-            safe = make_safe_frames(frames, 200)
-            if not safe:
-                return "Could not process image."
-            return groq_vision_call(FOOD_SYSTEM, FOOD_USER, safe, max_tokens=250, priority="high")
+            return _direct_groq_vision(FOOD_SYSTEM, FOOD_USER, frames[0], max_tokens=250)
 
         elif name == "document_reader":
             image_data = arguments.get("image_data", "")
@@ -3418,24 +3450,20 @@ def _mcp_call_tool(name: str, arguments: dict) -> str:
                 image_data = arguments["frames"][0]
             if not image_data:
                 return "No image provided."
-            safe = make_safe_frames([image_data], 300)
-            if not safe:
-                return "Could not process image."
-            return groq_vision_call(PAGE_READER_SYSTEM, PAGE_READER_USER, safe, max_tokens=1500, priority="high")
+            return _direct_groq_vision(PAGE_READER_SYSTEM, PAGE_READER_USER, image_data, max_tokens=1500)
 
         elif name == "scene_describer":
             frames = arguments.get("frames", [])
             question = arguments.get("question", "What is in front of me?")
             if not frames:
                 return "No image provided."
-            safe = make_safe_frames(frames, 200)
-            if not safe:
-                return "Could not process image."
-            return groq_vision_call(
+            return _direct_groq_vision(
                 "You are describing a scene for a visually impaired person. Be clear and specific. No markdown. Natural speech.",
-                f'User asks: "{question}". Describe clearly.',
-                safe, max_tokens=300, priority="high"
+                f'User asks: "{question}". Describe clearly with object locations (left, right, near, far).',
+                frames[0],
+                max_tokens=300,
             )
+
         else:
             return f"Unknown tool: {name}"
 
