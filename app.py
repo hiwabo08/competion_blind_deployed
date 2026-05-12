@@ -3589,6 +3589,21 @@ def test_groq_simple():
     
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
+    
+
+@app.route('/api/test-mcp-traffic', methods=['GET'])
+def test_mcp_traffic():
+    from PIL import Image, ImageDraw
+    import io, base64
+    img = Image.new('RGB', (64, 64), color=(0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([5, 5, 59, 59], fill=(255, 0, 0))
+    buf = io.BytesIO()
+    img.save(buf, format='JPEG', quality=70)
+    b64 = base64.b64encode(buf.getvalue()).decode()
+    processed = preprocess_image(b64, 320)
+    result = groq_vision_call(TRAFFIC_SYSTEM, TRAFFIC_USER, [processed], max_tokens=80, priority="high")
+    return jsonify({"success": True, "result": result})
 
 
 
