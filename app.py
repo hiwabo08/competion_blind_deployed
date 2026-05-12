@@ -3374,25 +3374,43 @@ _MCP_TOOLS = [
 
 
 def _mcp_call_tool(name: str, arguments: dict) -> str:
-    """Route tool calls to existing vision functions."""
     try:
+        # Helper to make tiny safe image — handles large external base64 images
+        def make_safe_frames(frames, max_size=200):
+            safe = []
+            for f in frames[:2]:
+                if not f or len(f) < 100:
+                    continue
+                try:
+                    from PIL import Image
+                    import io, base64
+                    raw = base64.b64decode(f)
+                    img = Image.open(io.BytesIO(raw)).convert("RGB")
+                    img.thumbnail((max_size, max_size))
+                    buf = io.BytesIO()
+                    img.save(buf, format='JPEG', quality=60)
+                    safe.append(base64.b64encode(buf.getvalue()).decode())
+                except Exception:
+                    safe.append(preprocess_image(f, max_size))
+            return safe
+
         if name == "traffic_light_detector":
             frames = arguments.get("frames", [])
             if not frames:
                 return "No image provided."
-            processed = [preprocess_image(f, 320) for f in frames[:1] if f and len(f) > 100]
-            if not processed:
+            safe = make_safe_frames(frames, 200)
+            if not safe:
                 return "Could not process image."
-            return groq_vision_call(TRAFFIC_SYSTEM, TRAFFIC_USER, processed, max_tokens=80, priority="high")
+            return groq_vision_call(TRAFFIC_SYSTEM, TRAFFIC_USER, safe, max_tokens=80, priority="high")
 
         elif name == "food_identifier":
             frames = arguments.get("frames", [])
             if not frames:
                 return "No image provided."
-            processed = [preprocess_image(f, 320) for f in frames[:4] if f and len(f) > 100]
-            if not processed:
+            safe = make_safe_frames(frames, 200)
+            if not safe:
                 return "Could not process image."
-            return groq_vision_call(FOOD_SYSTEM, FOOD_USER, processed, max_tokens=250, priority="low")
+            return groq_vision_call(FOOD_SYSTEM, FOOD_USER, safe, max_tokens=250, priority="high")
 
         elif name == "document_reader":
             image_data = arguments.get("image_data", "")
@@ -3400,33 +3418,30 @@ def _mcp_call_tool(name: str, arguments: dict) -> str:
                 image_data = arguments["frames"][0]
             if not image_data:
                 return "No image provided."
-            processed = preprocess_image(image_data, 320)
-            if not processed:
+            safe = make_safe_frames([image_data], 300)
+            if not safe:
                 return "Could not process image."
-            return groq_vision_call(PAGE_READER_SYSTEM, PAGE_READER_USER, [processed], max_tokens=1500, priority="high")
+            return groq_vision_call(PAGE_READER_SYSTEM, PAGE_READER_USER, safe, max_tokens=1500, priority="high")
 
         elif name == "scene_describer":
             frames = arguments.get("frames", [])
-            question = arguments.get("question", "What is in front of me? Describe the scene.")
+            question = arguments.get("question", "What is in front of me?")
             if not frames:
                 return "No image provided."
-            processed = [preprocess_image(f, 320) for f in frames[:3] if f and len(f) > 100]
-            if not processed:
+            safe = make_safe_frames(frames, 200)
+            if not safe:
                 return "Could not process image."
-            user_prompt = (
-                f'The user asks: "{question}". '
-                'Describe clearly what you see for a visually impaired person. '
-                'Be specific about locations (left, right, center, near, far).'
-            )
             return groq_vision_call(
                 "You are describing a scene for a visually impaired person. Be clear and specific. No markdown. Natural speech.",
-                user_prompt, processed, max_tokens=300, priority="high"
+                f'User asks: "{question}". Describe clearly.',
+                safe, max_tokens=300, priority="high"
             )
         else:
             return f"Unknown tool: {name}"
 
     except Exception as e:
-        return f"Error running {name}: {str(e)}"
+        return f"Error: {str(e)}"
+
 
 
 @app.route('/mcp', methods=['GET', 'POST', 'DELETE', 'OPTIONS'])
