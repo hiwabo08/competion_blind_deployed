@@ -3722,6 +3722,63 @@ def debug_mcp():
     except Exception as e:
         return jsonify({"error": str(e)})
 
+@app.route('/api/debug-direct', methods=['GET'])
+def debug_direct():
+    import requests as _req
+    import base64 as _b64
+    from PIL import Image as _Image
+    import io as _io
+
+    # Generate red image internally - no external image needed
+    img = _Image.new('RGB', (64, 64), color=(0,0,0))
+    from PIL import ImageDraw
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([5,5,59,59], fill=(255,0,0))
+    buf = _io.BytesIO()
+    img.save(buf, format='JPEG', quality=60)
+    small = _b64.b64encode(buf.getvalue()).decode()
+
+    keys = [
+        os.environ.get("GROQ_API_KEY_1",""),
+        os.environ.get("GROQ_API_KEY_2",""),
+        os.environ.get("GROQ_API_KEY_3","")
+    ]
+
+    results = {}
+    for i, key in enumerate(keys, 1):
+        if not key:
+            results[f"key_{i}"] = "NOT SET"
+            continue
+        try:
+            r = _req.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                json={
+                    "model": "meta-llama/llama-4-scout-17b-16e-instruct",
+                    "messages": [{"role": "user", "content": [
+                        {"type": "text", "text": "What color is this circle? One word."},
+                        {"type": "image_url", "image_url": {
+                            "url": f"data:image/jpeg;base64,{small}",
+                            "detail": "low"
+                        }}
+                    ]}],
+                    "max_tokens": 10,
+                    "temperature": 0.0
+                },
+                headers={
+                    "Authorization": f"Bearer {key}",
+                    "Content-Type": "application/json"
+                },
+                timeout=25
+            )
+            results[f"key_{i}"] = {
+                "status": r.status_code,
+                "body": r.json() if r.status_code == 200 else r.text[:300]
+            }
+        except Exception as e:
+            results[f"key_{i}"] = str(e)
+
+    return jsonify(results)
+
 
 if __name__ == "__main__":
     if ULTRALYTICS_AVAILABLE and CV2_AVAILABLE:
