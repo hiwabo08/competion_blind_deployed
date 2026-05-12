@@ -3374,27 +3374,29 @@ _MCP_TOOLS = [
 
 
 def _direct_groq_vision(system: str, user: str, frame_b64: str, max_tokens: int = 200) -> str:
-    """Direct Groq HTTP call that bypasses the shared failure counter — used by MCP tools."""
+    """Fully self-contained Groq vision call — reads keys from os.environ,
+    uses raw requests, zero dependency on module-level state or failure counter."""
     import requests as _req
-    import base64 as _b64, io as _io
+    import base64 as _b64
+    from PIL import Image as _Image
+    import io as _io
 
-    # Strip data URI prefix if present
+    # Strip data URI prefix if present before decode
     raw_b64 = frame_b64.split(",")[1] if "," in frame_b64 else frame_b64
 
-    # Resize to 200 px to stay well within Groq image limits
+    # Resize to tiny to stay well within Groq limits
     try:
-        from PIL import Image
         raw = _b64.b64decode(raw_b64 + "==")
-        img = Image.open(_io.BytesIO(raw)).convert("RGB")
-        img.thumbnail((200, 200))
+        img = _Image.open(_io.BytesIO(raw)).convert("RGB")
+        img.thumbnail((150, 150))
         buf = _io.BytesIO()
-        img.save(buf, format="JPEG", quality=60)
+        img.save(buf, format='JPEG', quality=55)
         raw_b64 = _b64.b64encode(buf.getvalue()).decode()
-    except Exception as resize_err:
-        print(f"[_direct_groq_vision] resize error: {resize_err}")
+    except Exception as e:
+        print(f"[_direct_groq_vision] resize: {e}")
 
     payload = {
-        "model": GROQ_MODEL,
+        "model": "meta-llama/llama-4-scout-17b-16e-instruct",
         "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": [
@@ -3406,27 +3408,37 @@ def _direct_groq_vision(system: str, user: str, frame_b64: str, max_tokens: int 
             ]}
         ],
         "max_tokens": max_tokens,
-        "temperature": 0.1,
+        "temperature": 0.1
     }
 
-    for key in [GROQ_API_KEY_1, GROQ_API_KEY_2, GROQ_API_KEY_3]:
+    # Read keys fresh from environment — never touches module-level state
+    keys = [
+        os.environ.get("GROQ_API_KEY_1", ""),
+        os.environ.get("GROQ_API_KEY_2", ""),
+        os.environ.get("GROQ_API_KEY_3", ""),
+    ]
+
+    for key in keys:
         if not key:
             continue
         try:
             r = _req.post(
                 "https://api.groq.com/openai/v1/chat/completions",
                 json=payload,
-                headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-                timeout=20,
+                headers={
+                    "Authorization": f"Bearer {key}",
+                    "Content-Type": "application/json"
+                },
+                timeout=25
             )
             if r.status_code == 200:
                 return r.json()["choices"][0]["message"]["content"].strip()
-            print(f"[_direct_groq_vision] key failed status={r.status_code}: {r.text[:200]}")
-        except Exception as call_err:
-            print(f"[_direct_groq_vision] request error: {call_err}")
-            continue
+            else:
+                print(f"[_direct_groq_vision] status={r.status_code}: {r.text[:100]}")
+        except Exception as e:
+            print(f"[_direct_groq_vision] request error: {e}")
 
-    return "Could not process image. Please try again."
+    return "Could not process image."
 
 
 def _mcp_call_tool(name: str, arguments: dict) -> str:
