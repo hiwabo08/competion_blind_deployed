@@ -3502,8 +3502,25 @@ def mcp_endpoint():
         return '', 204, headers
 
     if request.method == 'GET':
-        # SSE stream for server-initiated messages — return 405 (we don't need it)
-        return jsonify({"error": "SSE not supported, use POST"}), 405, headers
+        # Prompt Opinion first opens an SSE stream on GET /mcp.
+        # Must return a valid long-lived SSE response (not 405).
+        import time as _time
+
+        def sse_stream_once():
+            # Minimal valid SSE payload; closes immediately.
+            yield ": connected\n\n"
+
+        # Prefer minimal SSE (avoids Render idle streaming timeouts).
+        return app.response_class(
+            sse_stream_once(),
+            headers={
+                **headers,
+                'Content-Type': 'text/event-stream',
+                'Cache-Control': 'no-cache',
+                'X-Accel-Buffering': 'no',
+            },
+        )
+
 
     if request.method == 'DELETE':
         return '', 200, headers
@@ -3528,7 +3545,8 @@ def mcp_endpoint():
             "id": rpc_id,
             "result": {
                 "protocolVersion": "2024-11-05",
-                "capabilities": {"tools": {}},
+                "capabilities": {"tools": {"listChanged": False}},
+
                 "serverInfo": {
                     "name": "VisionAssist AI Smart Glasses",
                     "version": "1.0.0"
@@ -3809,3 +3827,4 @@ if __name__ == "__main__":
 
     app.run(debug=False, host="0.0.0.0", port=5000, threaded=True)
 
+ 
